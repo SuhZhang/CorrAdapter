@@ -1,0 +1,19 @@
+# >>> [CorrAdapter ADDED FILE BEGIN] Original MVAdapter did not include this
+# Local runtime artifacts. Keep model weights, generated images, and logs out of
+# the public release repository by default.
+outputs/
+output/
+logs/
+wandb/
+lightning_logs/
+checkpoints/
+ckpt/
+__pycache__/
+*.py[cod]
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.index.json
+# <<< [CorrAdapter ADDED FILE END]

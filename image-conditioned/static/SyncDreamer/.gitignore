@@ -1,0 +1,14 @@
+.idea
+training_examples
+objaverse_examples
+ldm/__pycache__/
+
+# >>> [CorrAdapter ADDED BEGIN: ignore local evaluation artifacts]
+# Local checkpoints and evaluation outputs are required
+# for running release tests but should not be committed.
+ckpt
+ckpt/
+output/
+__pycache__/
+**/__pycache__/
+# <<< [CorrAdapter ADDED END: ignore local evaluation artifacts]

@@ -1,0 +1,151 @@
+# >>> [CorrAdapter ADDED FILE BEGIN] Original MVAdapter did not include this
+# Training configuration for MVAdapter+CorrAdapter on image-conditioned SDXL
+# multi-view generation. Replace the data paths with your local Objaverse/GSO
+# training data before launching.
+
+name: i2mv
+tag: "mvadapter_corradapter-i2mv-sdxl"
+exp_root_dir: "outputs"
+seed: 42
+
+data_cls: mvadapter.data.multiview.MultiviewDataModule
+data:
+  root_dir: "data/texture_ortho10view_easylight_objaverse"
+  scene_list: "data/objaverse_list_6w.json"
+  background_color: gray
+  image_names: ["0000", "0004", "0001", "0002", "0003", "0005"]
+  image_modality: color
+  num_views: 6
+
+  prompt_db_path: "data/objaverse_short_captions.json"
+  return_prompt: true
+
+  projection_type: ORTHO
+
+  source_image_modality: ["plucker"]
+  plucker_offset: 1.0
+  plucker_scale: 2.0
+
+  reference_root_dir: ["data/texture_rand_easylight_objaverse"]
+  reference_scene_list: ["data/objaverse_list_6w.json"]
+  reference_image_modality: color
+  reference_image_names: ["0000", "0001", "0002", "0003", "0004"]
+
+  train_indices: [0, -8]
+  val_indices: [-8, null]
+  test_indices: [-8, null]
+
+  height: 768
+  width: 768
+
+  batch_size: 1
+  num_workers: 16
+
+system_cls: mvadapter.systems.mvadapter_image_sdxl.MVAdapterImageSDXLSystem
+system:
+  check_train_every_n_steps: 1000
+  cleanup_after_validation_step: true
+  cleanup_after_test_step: true
+  gradient_checkpointing: true
+
+  # Model / Adapter
+  pretrained_model_name_or_path: "stabilityai/stable-diffusion-xl-base-1.0"
+  pretrained_vae_name_or_path: "madebyollin/sdxl-vae-fp16-fix"
+  # >>> [CorrAdapter MODIFIED BEGIN: initialize from the original MVAdapter weights]
+  # Original MVAdapter training config used:
+  #   pretrained_adapter_name_or_path: null
+  pretrained_adapter_name_or_path: "huanngzh/mv-adapter/mvadapter_i2mv_sdxl.safetensors"
+  # <<< [CorrAdapter MODIFIED END: initialize from the original MVAdapter weights]
+  init_adapter_kwargs:
+    self_attn_processor: "mvadapter.models.attention_processor.DecoupledMVRowSelfAttnProcessor2_0"
+    cond_in_channels: 6
+    copy_attn_weights: true
+    # >>> [CorrAdapter MODIFIED BEGIN: keep pretrained MV/ref projections]
+    # Original MVAdapter often zero-initialized ["to_out_mv", "to_out_ref"].
+    # CorrAdapter fine-tuning starts from the original MVAdapter behavior.
+    zero_init_module_keys: []
+    # <<< [CorrAdapter MODIFIED END: keep pretrained MV/ref projections]
+
+  # Training
+  # >>> [CorrAdapter MODIFIED BEGIN: train CorrAdapter LoRA branch]
+  # Original MVAdapter:
+  #   train_cond_encoder: true
+  #   trainable_modules: ["_mv", "_ref"]
+  train_cond_encoder: false
+  # The training branch from feature/4.2J_fixAllLocLoss_MV_ConfWMatchLoss
+  # optimizes the LoRA projections attached to non-local self-attention
+  # processors. The local q/k/v branch is still used during forward passes and
+  # for feature collection, but is initialized from the original MV branch.
+  trainable_modules: ["_lora"]
+  # <<< [CorrAdapter MODIFIED END: train CorrAdapter LoRA branch]
+  prompt_drop_prob: 0.1
+  image_drop_prob: 0.1
+  cond_drop_prob: 0.1
+  # >>> [CorrAdapter ADDED BEGIN: LoFTR correspondence supervision]
+  # Original MVAdapter only uses diffusion loss. CorrAdapter* can add a
+  # confidence-weighted feature matching loss. To enable it, clone LoFTR into
+  # third_party/LoFTR and set loftr_checkpoint to the downloaded checkpoint.
+  loftr_loss_weight: 0.1
+  loftr_checkpoint: "third_party/LoFTR/weights/indoor_ds_new.ckpt"
+  loftr_confidence_threshold: 0.0
+  loftr_max_matches_per_pair: 999999
+  loftr_progress_bar: false
+  # <<< [CorrAdapter ADDED END: LoFTR correspondence supervision]
+
+  # Noise sampler
+  shift_noise: true
+  shift_noise_mode: interpolated
+  shift_noise_scale: 8
+
+  # Evaluation
+  eval_seed: 42
+  eval_num_inference_steps: 30
+  eval_guidance_scale: 3.0
+  eval_height: ${data.height}
+  eval_width: ${data.width}
+
+  optimizer:
+    name: AdamW
+    args:
+      lr: 5e-5
+      betas: [0.9, 0.999]
+      weight_decay: 0.01
+    params:
+      unet:
+        lr: 5e-5
+
+  scheduler:
+    name: SequentialLR
+    interval: step
+    schedulers:
+      - name: LinearLR
+        interval: step
+        args:
+          start_factor: 1e-6
+          end_factor: 1.0
+          total_iters: 2000
+      - name: ConstantLR
+        interval: step
+        args:
+          factor: 1.0
+          total_iters: 9999999
+    milestones: [2000]
+
+trainer:
+  max_epochs: 10
+  log_every_n_steps: 5
+  num_sanity_val_steps: 1
+  val_check_interval: 200
+  enable_progress_bar: true
+  precision: bf16-mixed
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 16
+  enable_model_summary: false
+
+checkpoint:
+  save_last: true
+  save_top_k: 5
+  monitor: "val_mse"
+  mode: "min"
+  every_n_epochs: 9999
+# <<< [CorrAdapter ADDED FILE END]
